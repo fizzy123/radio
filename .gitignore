@@ -1,0 +1,7 @@
+client_secrets.json
+radio.py-oauth2.json
+radio.db
+images/*
+__pycache__/*
+env/*
+*.swp
