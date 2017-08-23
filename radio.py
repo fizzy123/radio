@@ -76,6 +76,24 @@ def run(args):
             break
         image = random.choice([f for f in listdir('images') if isfile(join('images', f))])
         stream = subprocess.Popen(['./stream.sh', image, stream_url])
+
+        # Notify what track is playing!
+        info = None
+        if 'youtube' in config['current_url']:
+            info = get_youtube_info()
+        elif 'soundcould' in config['current_url']:
+            info = get_soundcloud_info()
+        if info:
+            response_text = "Now playing: {}".format(info)
+            body = {"snippet":
+                      {"liveChatId":config['broadcast']['snippet']['liveChatId'],
+                       'type': 'textMessageEvent',
+                       'textMessageDetails':{'messageText': response_text}
+                      }
+                    }
+            config['index'] = config['index'] + 1
+            config['youtube'].liveChatMessages().insert(part='snippet', body=body).execute()
+
         time.sleep(15)
         if config['broadcast']['status']['lifeCycleStatus'] == 'ready':
             response = config['youtube'].liveBroadcasts().transition(broadcastStatus= 'live', id=config['broadcast']['id'], part='snippet,status,contentDetails').execute()
@@ -101,6 +119,15 @@ def run(args):
         if stream.returncode != 0:
             print('stream failed')
             break
+
+def get_youtube_info():
+    response = requests.get('http://www.youtube.com/oembed?url={}&format=json'.format(config['current_url']))
+    result = response.json()
+    return result['title']
+
+def get_soundcoud_info():
+    parts = config['current_url'].replace('-', ' ').split('/')
+    return "{} - {}".format(parts['-2'], parts['-1'])
 
 def chat_poll():
     config['poll_conn'] = sqlite3.connect('radio.db')
