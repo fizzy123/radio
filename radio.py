@@ -22,7 +22,6 @@ conn.row_factory = sqlite3.Row
 config = {}
 
 def run(args):
-    started = False
     query = """SELECT url
                FROM songs
                ORDER BY RANDOM()
@@ -46,7 +45,6 @@ def run(args):
                 found = broadcast
                 break
     if found:
-        started = True
         config['broadcast'] = found
     else:
         config['broadcast'] = insert_broadcast(config['youtube'], args)
@@ -79,8 +77,10 @@ def run(args):
         image = random.choice([f for f in listdir('images') if isfile(join('images', f))])
         stream = subprocess.Popen(['./stream.sh', image, stream_url])
         time.sleep(15)
-        if not started:
+        if config['broadcast']['status']['lifeCycleStatus'] == 'ready':
             response = config['youtube'].liveBroadcasts().transition(broadcastStatus= 'live', id=config['broadcast']['id'], part='snippet,status,contentDetails').execute()
+            print(response)
+
         query = """SELECT url
                    FROM songs
                    ORDER BY RANDOM()
@@ -101,7 +101,6 @@ def run(args):
         if stream.returncode != 0:
             print('stream failed')
             break
-        started = True
 
 def chat_poll():
     config['poll_conn'] = sqlite3.connect('radio.db')
@@ -122,6 +121,7 @@ def parse_messages(messages):
     upvotes = 0
     downvotes = 0
     add_tracks = []
+
 # limited to 500 messages but fuck implementing pagination handling for a jerk off app
     for message in messages[config['index']:]:
         if 'textMessageDetails' in message['snippet'] and 'messageText' in message['snippet']['textMessageDetails']:
@@ -171,24 +171,34 @@ def upvote(times=1, url=None):
     if not url:
         url = config['current_url']
     print("{} upvotes for {}".format(times, url))
-    cur = config['poll_conn'].cursor()
+    if config.get('poll_conn'):
+        connection = config['poll_conn']
+    else:
+        connection = conn
+    cur = connection.cursor()
     cur.executemany("""INSERT INTO songs (url) values(?)""", [(url,)] * times)
-    config['poll_conn'].commit()
-    dump(config['broadcast-title'].lower().replace(' ','-'))
+    connection.commit()
+    if config.get('broadcast-title'):
+        dump(config['broadcast-title'].lower().replace(' ','-'))
 
 def downvote(times=1):
     print("{} downvotes for {}".format(times, config['current_url']))
     cur = config['poll_conn'].cursor()
+
     cur.execute("""DELETE FROM songs WHERE id = (SELECT id FROM songs WHERE url=? LIMIT ?)""", (config['current_url'], times,))
     config['poll_conn'].commit()
     dump(config['broadcast-title'].lower().replace(' ','-'))
 
 def dump(key):
+    if config.get('poll_conn'):
+        connection = config['poll_conn']
+    else:
+        connection = conn
     query = """SELECT url, count(*) as score
                FROM songs
                GROUP BY url
             """
-    rows = list(conn.cursor().execute(query))
+    rows = list(connection.cursor().execute(query))
 
     row_list = [dict(zip(row.keys(), row)) for row in rows]
     row_list = sorted(row_list, key=lambda row: row['score'])
@@ -206,7 +216,6 @@ if __name__ == "__main__":
         elif sys.argv[1] == 'add':
             upvote(url=sys.argv[2])
         elif sys.argv[1] == 'dump':
-            print(sys.argv)
             dump(sys.argv[2])
     else:
         argparser.add_argument("--broadcast-title", help="Broadcast title",
@@ -224,18 +233,20 @@ if __name__ == "__main__":
         argparser.add_argument("--disable-adding", help="Disable Adding Songs")
         argparser.add_argument("--description", help="Description")
         args = argparser.parse_args()
-        args.noauth_local_webserver = False
+        args.noauth_local_webserver = True
+        if not args.description:
+            args.description = ''
         args.description = args.description + "\n\nPlaylist: http://nobr.me/general/ram/?key={}".format(args.broadcast_title.lower().replace(' ','-'))
         if not args.disable_upvotes or \
            not args.disable_downvotes or \
            not args.disable_adding:
-            args.description = args.description + "\n\nCOMMANDS:\n\n"
+            args.description = args.description + "\n\nCOMMANDS:\n"
             if not args.disable_upvotes:
-                args.description = args.description + "\n\n++ - Upvote current song. More Upvoted songs will play more often\n\n"
+                args.description = args.description + "++ - Upvote current song. More Upvoted songs will play more often\n"
             if not args.disable_downvotes:
-                args.description = args.description + "\n\n-- - Downvote current song. More Downvoted songs will play less often\n\n"
+                args.description = args.description + "-- - Downvote current song. More Downvoted songs will play less often\n"
             if not args.disable_adding:
-                args.description = args.description + "\n\n!add {url} - Add a song from a url. Officially only supports youtube and soundcloud at the moment.\n\n"
+                args.description = args.description + "!add {url} - Add a song from a url. Officially only supports youtube and soundcloud at the moment.\n"
         config['broadcast-title'] = args.broadcast_title
         config['stream-title'] = args.stream_title
         config['enable-upvotes'] = not args.disable_upvotes

@@ -64,6 +64,7 @@ def get_authenticated_service(args):
 # Create a liveBroadcast resource and set its title, scheduled start time,
 # scheduled end time, and privacy status.
 def insert_broadcast(youtube, options):
+  print(options)
   insert_broadcast_response = youtube.liveBroadcasts().insert(
     part="snippet,status,contentDetails",
     body=dict(
@@ -71,7 +72,7 @@ def insert_broadcast(youtube, options):
         title=options.broadcast_title,
         scheduledStartTime=options.start_time,
         scheduledEndTime=options.end_time,
-        description=options.descrption
+        description=options.description
       ),
       status=dict(
         privacyStatus=options.privacy_status
@@ -80,7 +81,6 @@ def insert_broadcast(youtube, options):
         monitorStream=dict(
           enableMonitorStream=False
         ),
-        enableLowLatency=True
       ),
     )
   ).execute()
@@ -90,6 +90,7 @@ def insert_broadcast(youtube, options):
   print("Broadcast '%s' with title '%s' was published at '%s'." % (
     insert_broadcast_response["id"], snippet["title"], snippet["publishedAt"]))
   return insert_broadcast_response
+
 
 # Create a liveStream resource and set its title, format, and ingestion type.
 # This resource describes the content that you are transmitting to YouTube.
