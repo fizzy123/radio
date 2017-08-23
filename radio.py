@@ -238,13 +238,12 @@ def dump(key):
     print(response)
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        if sys.argv[1] == 'init':
-            init()
-        elif sys.argv[1] == 'add':
-            upvote(url=sys.argv[2])
-        elif sys.argv[1] == 'dump':
-            dump(sys.argv[2])
+    if sys.argv[1] == 'init':
+        init()
+    elif sys.argv[1] == 'add':
+        upvote(url=sys.argv[2])
+    elif sys.argv[1] == 'dump':
+        dump(sys.argv[2])
     else:
         argparser.add_argument("--broadcast-title", help="Broadcast title",
                                default="Nobel Radio")
