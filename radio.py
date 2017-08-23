@@ -7,6 +7,7 @@ import datetime
 import atexit
 import asyncio
 import functools
+import json
 from threading import Thread, currentThread
 from dateutil import parser
 from os import listdir
@@ -173,38 +174,71 @@ def upvote(times=1, url=None):
     cur = config['poll_conn'].cursor()
     cur.executemany("""INSERT INTO songs (url) values(?)""", [(url,)] * times)
     config['poll_conn'].commit()
+    dump(config['broadcast-title'].lower().replace(' ','-'))
 
 def downvote(times=1):
     print("{} downvotes for {}".format(times, config['current_url']))
     cur = config['poll_conn'].cursor()
     cur.execute("""DELETE FROM songs WHERE id = (SELECT id FROM songs WHERE url=? LIMIT ?)""", (config['current_url'], times,))
     config['poll_conn'].commit()
+    dump(config['broadcast-title'].lower().replace(' ','-'))
+
+def dump(key):
+    query = """SELECT url, count(*) as score
+               FROM songs
+               GROUP BY url
+            """
+    rows = list(conn.cursor().execute(query))
+
+    row_list = [dict(zip(row.keys(), row)) for row in rows]
+    row_list = sorted(row_list, key=lambda row: row['score'])
+    result_string = "Full song list for {}\n\nsong|score\n".format(key)
+    for row in row_list:
+        result_string = result_string + row['url'] + '|' + str(row['score']) + '\n'
+    result_string = result_string + "\n\n#readonly"
+    response = requests.post('http://nobr.me/general/ram/', {'key': key, 'body': result_string})
+    print(response)
 
 if __name__ == "__main__":
-    argparser.add_argument("--broadcast-title", help="Broadcast title",
-                           default="Nobel Radio")
-    argparser.add_argument("--privacy-status", help="Broadcast privacy status",
-                           default="unlisted")
-    argparser.add_argument("--start-time", help="Scheduled start time",
-                           default=datetime.datetime.utcnow().isoformat() + "Z")
-    argparser.add_argument("--end-time", help="Scheduled end time",
-                           default=(datetime.datetime.utcnow() + datetime.timedelta(hours=24)).isoformat() + "Z")
-    argparser.add_argument("--stream-title", help="Stream title",
-                           default="Nobel Radio")
-    argparser.add_argument("--disable-upvotes", help="Disable Upvotes")
-    argparser.add_argument("--disable-downvotes", help="Disable Downvotes")
-    argparser.add_argument("--disable-adding", help="Disable Adding Songs")
-    args = argparser.parse_args()
-    args.noauth_local_webserver = False
-    config['broadcast-title'] = args.broadcast_title
-    config['stream-title'] = args.stream_title
-    config['enable-upvotes'] = not args.disable_upvotes
-    config['enable-downvotes'] = not args.disable_downvotes
-    config['enable-adding'] = not args.disable_adding
     if len(sys.argv) > 1:
         if sys.argv[1] == 'init':
             init()
         elif sys.argv[1] == 'add':
-            upvote(sys.argv[2])
+            upvote(url=sys.argv[2])
+        elif sys.argv[1] == 'dump':
+            print(sys.argv)
+            dump(sys.argv[2])
     else:
+        argparser.add_argument("--broadcast-title", help="Broadcast title",
+                               default="Nobel Radio")
+        argparser.add_argument("--privacy-status", help="Broadcast privacy status",
+                               default="unlisted")
+        argparser.add_argument("--start-time", help="Scheduled start time",
+                               default=datetime.datetime.utcnow().isoformat() + "Z")
+        argparser.add_argument("--end-time", help="Scheduled end time",
+                               default=(datetime.datetime.utcnow() + datetime.timedelta(hours=24)).isoformat() + "Z")
+        argparser.add_argument("--stream-title", help="Stream title",
+                               default="Nobel Radio")
+        argparser.add_argument("--disable-upvotes", help="Disable Upvotes")
+        argparser.add_argument("--disable-downvotes", help="Disable Downvotes")
+        argparser.add_argument("--disable-adding", help="Disable Adding Songs")
+        argparser.add_argument("--description", help="Description")
+        args = argparser.parse_args()
+        args.noauth_local_webserver = False
+        args.description = args.description + "\n\nPlaylist: http://nobr.me/general/ram/?key={}".format(args.broadcast_title.lower().replace(' ','-'))
+        if not args.disable_upvotes or \
+           not args.disable_downvotes or \
+           not args.disable_adding:
+            args.description = args.description + "\n\nCOMMANDS:\n\n"
+            if not args.disable_upvotes:
+                args.description = args.description + "\n\n++ - Upvote current song. More Upvoted songs will play more often\n\n"
+            if not args.disable_downvotes:
+                args.description = args.description + "\n\n-- - Downvote current song. More Downvoted songs will play less often\n\n"
+            if not args.disable_adding:
+                args.description = args.description + "\n\n!add {url} - Add a song from a url. Officially only supports youtube and soundcloud at the moment.\n\n"
+        config['broadcast-title'] = args.broadcast_title
+        config['stream-title'] = args.stream_title
+        config['enable-upvotes'] = not args.disable_upvotes
+        config['enable-downvotes'] = not args.disable_downvotes
+        config['enable-adding'] = not args.disable_adding
         run(args)

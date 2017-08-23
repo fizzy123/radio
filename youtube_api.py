@@ -50,6 +50,7 @@ def get_authenticated_service(args):
   flow = flow_from_clientsecrets(CLIENT_SECRETS_FILE,
     scope=YOUTUBE_READ_WRITE_SCOPE,
     message=MISSING_CLIENT_SECRETS_MESSAGE)
+  flow.params['access_type'] = 'offline'
 
   storage = Storage("%s-oauth2.json" % sys.argv[0])
   credentials = storage.get()
@@ -69,7 +70,8 @@ def insert_broadcast(youtube, options):
       snippet=dict(
         title=options.broadcast_title,
         scheduledStartTime=options.start_time,
-        scheduledEndTime=options.end_time
+        scheduledEndTime=options.end_time,
+        description=options.descrption
       ),
       status=dict(
         privacyStatus=options.privacy_status
@@ -78,6 +80,7 @@ def insert_broadcast(youtube, options):
         monitorStream=dict(
           enableMonitorStream=False
         ),
+        enableLowLatency=True
       ),
     )
   ).execute()
