@@ -109,7 +109,7 @@ def chat_poll():
     config['index'] = 0
     t = currentThread()
     while getattr(t, "do_run", True):
-        response = config['youtube'].liveChatMessages().list(liveChatId=config['broadcast']['snippet']['liveChatId'], part='snippet').execute()
+        response = config['youtube'].liveChatMessages().list(liveChatId=config['broadcast']['snippet']['liveChatId'], part='snippet', maxResults=2000).execute()
         messages = response['items']
         if not config['index']:
             config['index'] = len(messages)
