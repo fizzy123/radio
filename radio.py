@@ -84,7 +84,7 @@ def run(args):
         elif 'soundcould' in config['current_url']:
             info = get_soundcloud_info()
         if info:
-            response_text = "Now playing: {}".format(info)
+            response_text = "Coming up: {}".format(info)
             body = {"snippet":
                       {"liveChatId":config['broadcast']['snippet']['liveChatId'],
                        'type': 'textMessageEvent',
