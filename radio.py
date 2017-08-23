@@ -154,14 +154,15 @@ def run(args):
 
 def get_youtube_info():
     response = requests.get('http://www.youtube.com/oembed?url={}&format=json'.format(config['current_url']))
-    try:
-       result = response.json()
-       return result['title']
-    except Exception as e:
-       print("FAILED TO PARSE YOUTUBE TITLE JSON")
-       print(e)
-       print(response.text)
-       return ''
+    while True:
+       try:
+           result = response.json()
+           break
+       except Exception as e:
+           print("FAILED TO PARSE YOUTUBE TITLE JSON")
+           print(e)
+           print(response.text)
+    return result['title']
 
 def get_soundcloud_info():
     parts = config['current_url'].replace('-', ' ').split('/')
