@@ -272,7 +272,12 @@ def dump(key):
     row_list = sorted(row_list, key=lambda row: row['score'])
     result_string = "Full song list for {}\n\nsong|score\n".format(key)
     for row in row_list:
-        result_string = result_string + row['url'] + '|' + str(row['score']) + '\n'
+        info = None
+        if 'youtube' in config['current_url']:
+            info = get_youtube_info()
+        elif 'soundcloud' in config['current_url']:
+            info = get_soundcloud_info()
+        result_string = result_string + info + '|' + str(row['score']) + '\n'
     result_string = result_string + "\n\n#readonly"
     response = requests.post('http://nobr.me/general/ram/', {'key': key, 'body': result_string})
 
