@@ -81,7 +81,7 @@ def run(args):
         info = None
         if 'youtube' in config['current_url']:
             info = get_youtube_info()
-        elif 'soundcould' in config['current_url']:
+        elif 'soundcloud' in config['current_url']:
             info = get_soundcloud_info()
         if info:
             response_text = "Coming up: {}".format(info)
