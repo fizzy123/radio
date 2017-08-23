@@ -61,6 +61,9 @@ def run(args):
     bind_broadcast(config['youtube'], config['broadcast']['id'], config['stream']['id'])
     stream_url = config['stream']['cdn']['ingestionInfo']['ingestionAddress'] + '/' + config['stream']['cdn']['ingestionInfo']['streamName']
     atexit.register(radio_teardown)
+    response = config['youtube'].liveChatMessages().list(liveChatId=config['broadcast']['snippet']['liveChatId'], part='snippet', maxResults=2000).execute()
+    messages = response['items']
+    config['index'] = len(messages)
     config['chat_poll'] = Thread(target=chat_poll)
     config['chat_poll'].start()
     while True:
@@ -91,14 +94,42 @@ def run(args):
                        'textMessageDetails':{'messageText': response_text}
                       }
                     }
-            config['index'] = config['index'] + 1
-            config['youtube'].liveChatMessages().insert(part='snippet', body=body).execute()
+            tries = 0
+            while tries < 5:
+                try:
+                    config['youtube'].liveChatMessages().insert(part='snippet', body=body).execute()
+                    print("SUCCESS")
+                    break
+                except Exception as e:
+                    print("ERROR REPORTING CURRENT SONG")
+                    print(e)
+                time.sleep(1)
+                response = config['youtube'].liveChatMessages().list(liveChatId=config['broadcast']['snippet']['liveChatId'], part='snippet', maxResults=2000).execute()
+                if len(response['items']) > config['index']:
+                    break
+                tries = tries + 1
 
-        time.sleep(15)
+            config['index'] = config['index'] + 1
+
+        time.sleep(5)
+        if config['broadcast']['status']['lifeCycleStatus'] == 'created':
+            while config['broadcast']['status']['lifeCycleStatus'] != 'ready':
+                broadcasts = config['youtube'].liveBroadcasts().list(part='snippet,id,contentDetails,status', mine=True).execute()['items']
+                for broadcast in broadcasts:
+                    if broadcast['snippet']['title'] == config['broadcast-title']:
+                        config['broadcast'] = broadcast
+                        break
+                time.sleep(1)
         if config['broadcast']['status']['lifeCycleStatus'] == 'ready':
-            response = config['youtube'].liveBroadcasts().transition(broadcastStatus= 'live', id=config['broadcast']['id'], part='snippet,status,contentDetails').execute()
+            while True:
+                try:   
+                    response = config['youtube'].liveBroadcasts().transition(broadcastStatus='live', id=config['broadcast']['id'], part='snippet,status,contentDetails').execute()
+                    break
+                except Exception as e:
+                    print("TRANSITION FAILED")
+                    print(e)
             config['broadcast']['status']['lifeCycleStatus'] == 'live'
-            print(response)
+            print("STATUS SET TO LIVE")
 
         query = """SELECT url
                    FROM songs
@@ -123,26 +154,35 @@ def run(args):
 
 def get_youtube_info():
     response = requests.get('http://www.youtube.com/oembed?url={}&format=json'.format(config['current_url']))
-    result = response.json()
-    return result['title']
+    try:
+       result = response.json()
+       return result['title']
+    except Exception as e:
+       print("FAILED TO PARSE YOUTUBE TITLE JSON")
+       print(e)
+       print(response.text)
+       return ''
 
-def get_soundcoud_info():
+def get_soundcloud_info():
     parts = config['current_url'].replace('-', ' ').split('/')
-    return "{} - {}".format(parts['-2'], parts['-1'])
+    return "{} - {}".format(parts[-2], parts[-1])
 
 def chat_poll():
     config['poll_conn'] = sqlite3.connect('radio.db')
     config['poll_conn'].row_factory = sqlite3.Row
-    config['index'] = 0
     t = currentThread()
     while getattr(t, "do_run", True):
-        response = config['youtube'].liveChatMessages().list(liveChatId=config['broadcast']['snippet']['liveChatId'], part='snippet', maxResults=2000).execute()
-        messages = response['items']
-        if not config['index']:
+        # youtube api is total garbage and unreliable
+        try:
+            response = config['youtube'].liveChatMessages().list(liveChatId=config['broadcast']['snippet']['liveChatId'], part='snippet', maxResults=2000).execute()
+            messages = response['items']
+            parse_messages(messages)
             config['index'] = len(messages)
-        parse_messages(messages)
-        config['index'] = len(messages)
-        time.sleep(response['pollingIntervalMillis']/1000)
+            time.sleep(response['pollingIntervalMillis']/1000)
+        except Exception as e:
+            print("CHAT ERROR")
+            print(e)
+            time.sleep(5)
     print("Closing")
 
 def parse_messages(messages):
@@ -235,48 +275,47 @@ def dump(key):
         result_string = result_string + row['url'] + '|' + str(row['score']) + '\n'
     result_string = result_string + "\n\n#readonly"
     response = requests.post('http://nobr.me/general/ram/', {'key': key, 'body': result_string})
-    print(response)
 
 if __name__ == "__main__":
-    if sys.argv[1] == 'init':
-        init()
-    elif sys.argv[1] == 'add':
-        upvote(url=sys.argv[2])
-    elif sys.argv[1] == 'dump':
-        dump(sys.argv[2])
-    else:
-        argparser.add_argument("--broadcast-title", help="Broadcast title",
-                               default="Nobel Radio")
-        argparser.add_argument("--privacy-status", help="Broadcast privacy status",
-                               default="unlisted")
-        argparser.add_argument("--start-time", help="Scheduled start time",
-                               default=datetime.datetime.utcnow().isoformat() + "Z")
-        argparser.add_argument("--end-time", help="Scheduled end time",
-                               default=(datetime.datetime.utcnow() + datetime.timedelta(hours=24)).isoformat() + "Z")
-        argparser.add_argument("--stream-title", help="Stream title",
-                               default="Nobel Radio")
-        argparser.add_argument("--disable-upvotes", help="Disable Upvotes")
-        argparser.add_argument("--disable-downvotes", help="Disable Downvotes")
-        argparser.add_argument("--disable-adding", help="Disable Adding Songs")
-        argparser.add_argument("--description", help="Description")
-        args = argparser.parse_args()
-        args.noauth_local_webserver = True
-        if not args.description:
-            args.description = ''
-        args.description = args.description + "\n\nPlaylist: http://nobr.me/general/ram/?key={}".format(args.broadcast_title.lower().replace(' ','-'))
-        if not args.disable_upvotes or \
-           not args.disable_downvotes or \
-           not args.disable_adding:
-            args.description = args.description + "\n\nCOMMANDS:\n"
-            if not args.disable_upvotes:
-                args.description = args.description + "++ - Upvote current song. More Upvoted songs will play more often\n"
-            if not args.disable_downvotes:
-                args.description = args.description + "-- - Downvote current song. More Downvoted songs will play less often\n"
-            if not args.disable_adding:
-                args.description = args.description + "!add {url} - Add a song from a url. Officially only supports youtube and soundcloud at the moment.\n"
-        config['broadcast-title'] = args.broadcast_title
-        config['stream-title'] = args.stream_title
-        config['enable-upvotes'] = not args.disable_upvotes
-        config['enable-downvotes'] = not args.disable_downvotes
-        config['enable-adding'] = not args.disable_adding
-        run(args)
+    if len(sys.argv) > 1:
+        if sys.argv[1] == 'init':
+            init()
+        elif sys.argv[1] == 'add':
+            upvote(url=sys.argv[2])
+        elif sys.argv[1] == 'dump':
+            dump(sys.argv[2])
+    argparser.add_argument("--broadcast-title", help="Broadcast title",
+                           default="Nobel Radio")
+    argparser.add_argument("--privacy-status", help="Broadcast privacy status",
+                           default="unlisted")
+    argparser.add_argument("--start-time", help="Scheduled start time",
+                           default=datetime.datetime.utcnow().isoformat() + "Z")
+    argparser.add_argument("--end-time", help="Scheduled end time",
+                           default=(datetime.datetime.utcnow() + datetime.timedelta(hours=24)).isoformat() + "Z")
+    argparser.add_argument("--stream-title", help="Stream title",
+                           default="Nobel Radio")
+    argparser.add_argument("--disable-upvotes", help="Disable Upvotes")
+    argparser.add_argument("--disable-downvotes", help="Disable Downvotes")
+    argparser.add_argument("--disable-adding", help="Disable Adding Songs")
+    argparser.add_argument("--description", help="Description")
+    args = argparser.parse_args()
+    args.noauth_local_webserver = True
+    if not args.description:
+        args.description = ''
+    args.description = args.description + "\n\nPlaylist: http://nobr.me/general/ram/?key={}".format(args.broadcast_title.lower().replace(' ','-'))
+    if not args.disable_upvotes or \
+       not args.disable_downvotes or \
+       not args.disable_adding:
+        args.description = args.description + "\n\nCOMMANDS:\n"
+        if not args.disable_upvotes:
+            args.description = args.description + "++ - Upvote current song. More Upvoted songs will play more often\n"
+        if not args.disable_downvotes:
+            args.description = args.description + "-- - Downvote current song. More Downvoted songs will play less often\n"
+        if not args.disable_adding:
+            args.description = args.description + "!add {url} - Add a song from a url. Officially only supports youtube and soundcloud at the moment.\n"
+    config['broadcast-title'] = args.broadcast_title
+    config['stream-title'] = args.stream_title
+    config['enable-upvotes'] = not args.disable_upvotes
+    config['enable-downvotes'] = not args.disable_downvotes
+    config['enable-adding'] = not args.disable_adding
+    run(args)
