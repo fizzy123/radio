@@ -97,6 +97,7 @@ def run(args):
         time.sleep(15)
         if config['broadcast']['status']['lifeCycleStatus'] == 'ready':
             response = config['youtube'].liveBroadcasts().transition(broadcastStatus= 'live', id=config['broadcast']['id'], part='snippet,status,contentDetails').execute()
+            config['broadcast']['status']['lifeCycleStatus'] == 'live'
             print(response)
 
         query = """SELECT url
