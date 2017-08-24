@@ -7,6 +7,7 @@ import datetime
 import atexit
 import asyncio
 import functools
+import re
 import json
 from threading import Thread, currentThread
 from dateutil import parser
@@ -104,7 +105,12 @@ def run(args):
                     print("ERROR REPORTING CURRENT SONG")
                     print(e)
                 time.sleep(1)
-                response = config['youtube'].liveChatMessages().list(liveChatId=config['broadcast']['snippet']['liveChatId'], part='snippet', maxResults=2000).execute()
+                response = None
+                while not response:
+                    try:
+                        response = config['youtube'].liveChatMessages().list(liveChatId=config['broadcast']['snippet']['liveChatId'], part='snippet', maxResults=2000).execute()
+                    except Exception as e:
+                        print(e)
                 if len(response['items']) > config['index']:
                     break
                 tries = tries + 1
@@ -152,20 +158,22 @@ def run(args):
             print('stream failed')
             break
 
-def get_youtube_info():
-    response = requests.get('http://www.youtube.com/oembed?url={}&format=json'.format(config['current_url']))
-    while True:
-       try:
-           result = response.json()
-           break
-       except Exception as e:
-           print("FAILED TO PARSE YOUTUBE TITLE JSON")
-           print(e)
-           print(response.text)
-    return result['title']
+def get_youtube_info(url=None):
+    if not url:
+        url = config['current_url']
+    video_id = re.search(r"\?v=([a-zA-z0-9\-]+)", url).group(1)
+    title = None
+    while not title:
+        try:
+            title = config['youtube'].videos().list(part='snippet', id=video_id).execute()['items'][0]['snippet']['title']
+        except Exception as e:
+            print(e)
+    return title
 
-def get_soundcloud_info():
-    parts = config['current_url'].replace('-', ' ').split('/')
+def get_soundcloud_info(url=None):
+    if not url:
+        url = config['current_url']
+    parts = url.replace('-', ' ').split('/')
     return "{} - {}".format(parts[-2], parts[-1])
 
 def chat_poll():
@@ -274,10 +282,10 @@ def dump(key):
     result_string = "Full song list for {}\n\nsong|score\n".format(key)
     for row in row_list:
         info = None
-        if 'youtube' in config['current_url']:
-            info = get_youtube_info()
-        elif 'soundcloud' in config['current_url']:
-            info = get_soundcloud_info()
+        if 'youtube' in row['url']:
+            info = get_youtube_info(row['url'])
+        elif 'soundcloud' in row['url']:
+            info = get_soundcloud_info(row['url'])
         result_string = result_string + info + '|' + str(row['score']) + '\n'
     result_string = result_string + "\n\n#readonly"
     response = requests.post('http://nobr.me/general/ram/', {'key': key, 'body': result_string})
@@ -318,7 +326,7 @@ if __name__ == "__main__":
         if not args.disable_downvotes:
             args.description = args.description + "-- - Downvote current song. More Downvoted songs will play less often\n"
         if not args.disable_adding:
-            args.description = args.description + "!add {url} - Add a song from a url. Officially only supports youtube and soundcloud at the moment.\n"
+            args.description = args.description + "!add {url} - Add a song from a url. Officially only supports youtube and soundcloud at the moment. Check the youtube link you put in for quality!\n"
     config['broadcast-title'] = args.broadcast_title
     config['stream-title'] = args.stream_title
     config['enable-upvotes'] = not args.disable_upvotes
