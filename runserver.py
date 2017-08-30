@@ -12,6 +12,7 @@ from dateutil import parser
 
 import redis
 import requests
+import youtube_dl
 from flask import Flask, render_template, request, jsonify
 from flask_socketio import SocketIO
 
@@ -55,6 +56,19 @@ def parse_message(message):
         socketio.emit('message', response_text)
         upvote(url=message.split(' ')[1])
 
+def download(url):
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'wav',
+            'preferredquality': '0'
+        }],
+        'outtmpl': '/tmp/staging.wav'
+    }
+    with youtube_dl.YoutubeDL(ydl_opts) as ydl:
+        ydl.download([url])
+
 def run():
     query = """SELECT url
                FROM songs
@@ -64,14 +78,7 @@ def run():
     config['staging_url'] = list(conn.cursor().execute(query))[0]['url']
     delete = subprocess.Popen(['rm', '-rf', '/tmp/staging.wav'], stdout=subprocess.PIPE)
     delete.wait()
-    download = subprocess.Popen(['youtube-dl',
-                                 '--extract-audio',
-                                 '--audio-format',
-                                 'wav',
-                                 '-o',
-                                 '/tmp/staging.wav',
-                                 config['staging_url']], stdout=subprocess.PIPE)
-    download.wait()
+    download(config['staging_url'])
     play_song()
 
 def play_song():
@@ -106,16 +113,7 @@ def play_song():
     delete.wait()
     if delete.returncode != 0:
         raise RuntimeError('Delete Failed')
-    download = subprocess.Popen(['youtube-dl',
-                                 '--extract-audio',
-                                 '--audio-format',
-                                 'wav',
-                                 '-o',
-                                 '/tmp/staging.wav',
-                                 config['staging_url']], stdout=subprocess.PIPE)
-    download.wait()
-    if download.returncode != 0:
-        raise RuntimeError('Download Failed')
+    download(config['staging_url'])
     stream.wait()
     if stream.returncode != 0:
         raise RuntimeError('Stream Failed')
