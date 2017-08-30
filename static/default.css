@@ -1,0 +1,18 @@
+body {
+  font-family: 'Open Sans', sans-serif;
+}
+
+div {
+}
+
+.chat {
+  height: 800px;
+}
+
+.object {
+  color: #A61814
+}
+
+.subject {
+  color: #06162F
+}

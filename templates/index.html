@@ -1,0 +1,53 @@
+<html>
+  <head>
+    <script type="text/javascript" src="https://code.jquery.com/jquery-3.1.1.min.js"></script>
+    <script src="https://cdn.socket.io/socket.io-1.4.5.js"></script>
+    <title>Radio</title>
+    <script>
+      $(document).ready(function() {
+        var topic = "{{ topic_id }}"
+        var socket = io.connect('http://localhost:3000');
+        var client_id = guid();
+        socket.on('message', function(data) {
+          console.log(data)
+          if (data.topic === topic && data.client_id !== client_id) {
+            var new_message = $('<div>')
+            new_message.addClass('subject')
+            new_message.text(data.message)
+            $('.chat').append(new_message)
+          }
+        });
+        $('.send').click(function() {
+          var message = $('.message-box').val()
+          $('.message-box').val('')
+          $.post('/message', {message: message, topic:topic, client_id: client_id}, function() {
+            var new_message = $('<div>')
+            new_message.addClass('object')
+            new_message.text(message)
+            $('.chat').append(new_message)
+          })
+        });
+      })
+      function guid() {
+        function s4() {
+          return Math.floor((1 + Math.random()) * 0x10000)
+            .toString(16)
+            .substring(1);
+        }
+        return s4() + s4() + '-' + s4() + '-' + s4() + '-' +
+          s4() + '-' + s4() + s4() + s4();
+      }
+    </script>
+    <link href="https://fonts.googleapis.com/css?family=Open+Sans" rel="stylesheet">
+    <link rel=stylesheet type=text/css href="{{ url_for('static', filename='default.css') }}">
+  </head>
+  <body>
+    <h1>{{ topic }}</h1>
+    <div class='chat'>
+    </div>
+    <div class='message'>
+      <input placeholder='Say something!' type='text' class='message-box'>
+      <div class='send'>Submit</div>
+    </div>
+  </body>
+</html>
