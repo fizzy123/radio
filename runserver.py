@@ -8,64 +8,107 @@ import argparse
 
 from os import listdir
 from os.path import isfile, join
-from dateutil import parser
 
-import redis
 import requests
 import youtube_dl
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, g, has_request_context
 from flask_socketio import SocketIO
 
 app = Flask(__name__, static_url_path='/static')
 socketio = SocketIO(app)
-#socketio = SocketIO(app, async_mode='threading')
-r_client = redis.StrictRedis(host='localhost', port=6379, db=0)
-conn = sqlite3.connect('radio.db')
-conn.row_factory = sqlite3.Row
 
 config = {}
 MESSAGES_LENGTH = 100
 
-@app.route("/", methods=['GET'])
-def index():
-    messages = r_client.lrange('messages', 0, MESSAGES_LENGTH)
-    return render_template('index.html', messages=messages)
+def get_db():
+    conn = sqlite3.connect('radio.db')
+    conn.row_factory = sqlite3.Row
+    if not has_request_context():
+        return conn
+    if not hasattr(g, 'db'):
+        g.db = conn
+    return g.db
 
-@app.route("/", methods=['POST'])
-def topic_post():
-    message = request.form['message']
-    parse_message(message['raw'])
-    r_client.rpush('messages', message['formatted'])
-    length = r_client.llen('messages')
-    r_client.ltrim('messages', length - MESSAGES_LENGTH, length)
+@app.teardown_appcontext
+def close_db(error):
+    if hasattr(g, 'db'):
+        g.db.close()
+
+@app.route("/", methods=['GET'])
+def messages():
+    return render_template('index.html', title=config['broadcast-title'], id=config['broadcast-title'].lower().replace(' ', '-'))
+
+@app.route("/messages", methods=['GET'])
+def index():
+    conn = get_db()
+    query = """SELECT message, username
+               FROM messages
+               ORDER BY created_at
+            """
+    messages = list(conn.cursor().execute(query))[-50:]
+    return jsonify({'messages': [dict(zip(row.keys(), row)) for row in messages]})
+
+@socketio.on('message_emit')
+def message(data):
+    message = data['message']
+    username = data['username']
+    socketio.emit('message_emit', {'message': message, 'username': username})
+    commit_message(message, username)
+    parse_message(message)
     return jsonify({'success': True})
 
-@app.route("/done")
+@app.route("/done", methods=['POST'])
 def done():
     play_song()
+    return jsonify({'success': True})
+
+def commit_message(message, username):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""INSERT INTO messages (message, username) values(?, ?)""", (message, username))
+    conn.commit()
 
 def parse_message(message):
-    if '++' in message and config['enable-upvotes']:
+    if '++' in message[:2] and config['enable-upvotes']:
         upvote()
-    elif '--' in message and config['enable-downvotes']:
+    elif '--' in message[:2] and config['enable-downvotes']:
         print('Downvoted!')
         downvote()
-    elif message[0:4] and config['enable-adding']:
+        skip = subprocess.Popen(['pkill', 'ffmpeg'], stdout=subprocess.PIPE)
+        skip.wait()
+    elif message[0:4] == '!add' and config['enable-adding']:
         print('Added!')
-        response_text = "Added {} to the playlist!".format(message.split(' ')[1])
-        socketio.emit('message', response_text)
-        upvote(url=message.split(' ')[1])
+        url = message.split(' ')[1]
+        if 'youtube.com' in url or 'youtu.be' in url or 'soundcloud.com' in url:
+            response_text = "Added {} to the playlist!".format(message.split(' ')[1])
+            commit_message(response_text, "RADIOBOT")
+            socketio.emit('message_emit', {'message': response_text, 'username': 'RADIOBOT'})
+            upvote(times=5, url=message.split(' ')[1])
+        else:
+            response_text = "{} is an invalid url!".format(message.split(' ')[1])
+            commit_message(response_text, "RADIOBOT")
+            socketio.emit('message_emit', {'message': response_text, 'username': 'RADIOBOT'})
+    elif message[0:5] == '!help':
+        response_text = config['description']
+        commit_message(response_text, "RADIOBOT")
+        socketio.emit('message_emit', {'message': response_text, 'username': 'RADIOBOT'})
 
 def download(url):
     ydl_opts = {
+        'quiet': True,
         'format': 'bestaudio/best',
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'wav',
             'preferredquality': '0'
+
+
         }],
         'outtmpl': '/tmp/staging.wav'
     }
+    config['history'].append(url)
+    if len(config['history']) > 5:
+        config['history'] = config['history'][-5:]
     with youtube_dl.YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])
 
@@ -73,9 +116,12 @@ def run():
     query = """SELECT url
                FROM songs
                ORDER BY RANDOM()
-               LIMIT 1
+               LIMIT 10
             """
-    config['staging_url'] = list(conn.cursor().execute(query))[0]['url']
+    conn = get_db()
+    candidates = [url for url in list(conn.cursor().execute(query)) if url['url'] not in config['history']]
+
+    config['staging_url'] = candidates[0]['url']
     delete = subprocess.Popen(['rm', '-rf', '/tmp/staging.wav'], stdout=subprocess.PIPE)
     delete.wait()
     download(config['staging_url'])
@@ -88,43 +134,53 @@ def play_song():
     if swap.returncode != 0:
         raise RuntimeError('Swap Failed')
     image = random.choice([f for f in listdir('images') if isfile(join('images', f))])
+    info = get_info(config['current_url'])
     stream = subprocess.Popen(['./stream.sh',
                                image,
+                               info.encode('utf-8'),
                                '{}/{}'.format(config['rtmp-server'],
                                               config['broadcast-title'].lower().replace(' ', '-'))
-                              ])
 
-    # Notify what track is playing!
-    info = None
-    if 'youtube' in config['current_url']:
-        info = get_youtube_info()
-    elif 'soundcloud' in config['current_url']:
-        info = get_soundcloud_info()
-    if info:
-        response_text = "Coming up: {}".format(info)
-        socketio.emit('message', response_text)
+                              ])
+    response_text = "Coming up: <a href='{}'>{}</a>".format(config['current_url'], info)
+    commit_message(response_text, "RADIOBOT")
+    socketio.emit('message_emit', {'message': response_text, 'username': 'RADIOBOT'})
+
     query = """SELECT url
                FROM songs
                ORDER BY RANDOM()
-               LIMIT 1
+
+               LIMIT 10
             """
-    config['staging_url'] = list(conn.cursor().execute(query))[0]['url']
+
+    conn = get_db()
+    candidates = [url for url in list(conn.cursor().execute(query)) if url['url'] not in config['history']]
+    config['staging_url'] = candidates[0]['url']
     delete = subprocess.Popen(['rm', '-rf', '/tmp/staging.wav'], stdout=subprocess.PIPE)
     delete.wait()
     if delete.returncode != 0:
         raise RuntimeError('Delete Failed')
     download(config['staging_url'])
-    stream.wait()
-    if stream.returncode != 0:
-        raise RuntimeError('Stream Failed')
+
+def get_info(url):
+    if 'youtube' in url or 'youtu.be' in url:
+        return get_youtube_info(url)
+    elif 'soundcloud' in url:
+        return get_soundcloud_info(url)
+    else:
+        return None
 
 def get_youtube_info(url=None):
     if not url:
         url = config['current_url']
-    video_id = re.search(r"\?v=([a-zA-z0-9\-]+)", url).group(1)
+
+    if 'youtube' in url:
+        video_id = re.search(r"\?v=([a-zA-z0-9\-]+)", url).group(1)
+    elif 'youtu.be' in url:
+        video_id = url.split('/')[-1]
 # pylint: disable=line-too-long
     response = requests.get('https://www.googleapis.com/youtube/v3/videos?id={}&key={}&part=snippet'.format(video_id, config['youtube_api_key']))
-    title = response.json()[0]['title']
+    title = response.json()['items'][0]['snippet']['title']
     return title
 
 def get_soundcloud_info(url=None):
@@ -136,11 +192,24 @@ def get_soundcloud_info(url=None):
 def init():
     # db structure is a little weird.
     # Rather than having a score explicitly, the score will be how many rows with that url exist.
+
+    conn = get_db()
     cur = conn.cursor()
+    cur.execute("DROP TABLE IF EXISTS songs")
     cur.execute("""CREATE TABLE songs (
+
                      id INTEGER PRIMARY KEY NOT NULL,
                      url TEXT NOT NULL
                    )
+                """)
+    cur.execute("DROP TABLE IF EXISTS messages")
+    cur.execute("""CREATE TABLE messages (
+                     id INTEGER PRIMARY KEY NOT NULL,
+                     created_at TIMESTAMP NOT NULL DEFAULT current_timestamp,
+                     message TEXT NOT NULL,
+
+                     username TEXT NOT NULL
+                    )
                 """)
     conn.commit()
 
@@ -148,6 +217,8 @@ def upvote(times=1, url=None):
     if not url:
         url = config['current_url']
     print("{} upvotes for {}".format(times, url))
+
+    conn = get_db()
     cur = conn.cursor()
     cur.executemany("""INSERT INTO songs (url) values(?)""", [(url,)] * times)
     conn.commit()
@@ -156,6 +227,7 @@ def upvote(times=1, url=None):
 
 def downvote(times=1):
     print("{} downvotes for {}".format(times, config['current_url']))
+    conn = get_db()
     cur = conn.cursor()
 
     cur.execute("""DELETE FROM songs
@@ -171,17 +243,14 @@ def dump(key):
                FROM songs
                GROUP BY url
             """
+    conn = get_db()
     rows = list(conn.cursor().execute(query))
 
     row_list = [dict(zip(row.keys(), row)) for row in rows]
     row_list = sorted(row_list, key=lambda row: row['score'])
     result_string = "Full song list for {}\n\nsong|score\n".format(key)
     for row in row_list:
-        info = None
-        if 'youtube' in row['url']:
-            info = get_youtube_info(row['url'])
-        elif 'soundcloud' in row['url']:
-            info = get_soundcloud_info(row['url'])
+        info = get_info(row['url'])
         result_string = result_string + info + '|' + str(row['score']) + '\n'
     result_string = result_string + "\n\n#readonly"
     requests.post('http://nobr.me/general/ram/', {'key': key, 'body': result_string})
@@ -190,10 +259,14 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         if sys.argv[1] == 'init':
             init()
+            sys.exit()
+
         elif sys.argv[1] == 'add':
             upvote(url=sys.argv[2])
+            sys.exit()
         elif sys.argv[1] == 'dump':
             dump(sys.argv[2])
+            sys.exit()
     parser = argparse.ArgumentParser(description='Host a radio website')
     parser.add_argument("--broadcast-title", help="Broadcast title",
                         default="Nobel Radio")
@@ -201,16 +274,18 @@ if __name__ == "__main__":
     parser.add_argument("--disable-downvotes", help="Disable Downvotes")
     parser.add_argument("--disable-adding", help="Disable Adding Songs")
     parser.add_argument("--description", help="Description")
-    parser.add_argument("--rtmp-server", help="Description", default='172.17.0.1')
+    parser.add_argument("--rtmp-server", help="Description", default='172.17.0.6')
     args = parser.parse_args()
     if not args.description:
         args.description = ''
+
 # pylint: disable=line-too-long
-    args.description = "{}\n\nPlaylist: http://nobr.me/general/ram/?key={}".format(args.descrption, args.broadcast_title.lower().replace(' ', '-'))
+    args.description = "{}\n\n<a href='http://nobr.me/general/ram/?key={}'>Playlist</a>".format(args.description, args.broadcast_title.lower().replace(' ', '-'))
     if not args.disable_upvotes or \
        not args.disable_downvotes or \
        not args.disable_adding:
         args.description = args.description + "\n\nCOMMANDS:\n"
+
         if not args.disable_upvotes:
 # pylint: disable=line-too-long
             args.description = args.description + "++ - Upvote current song. More Upvoted songs will play more often\n"
@@ -218,11 +293,14 @@ if __name__ == "__main__":
 # pylint: disable=line-too-long
             args.description = args.description + "-- - Downvote current song. More Downvoted songs will play less often\n"
         if not args.disable_adding:
-            args.description = args.description + "!add {url} - Add a song from a url. Officially only supports youtube and soundcloud at the moment. Check the youtube link you put in for quality!\n"
+            args.description = args.description + "!add {url} - Add a song from a url. Officially only supports youtube and soundcloud at the moment.\n"
     config['broadcast-title'] = args.broadcast_title
     config['rtmp-server'] = args.rtmp_server
     config['enable-upvotes'] = not args.disable_upvotes
     config['enable-downvotes'] = not args.disable_downvotes
     config['enable-adding'] = not args.disable_adding
+    config['youtube_api_key'] = 'AIzaSyDMxVYD6VEhw8clYtPKIRyRqnx4rec3cNk'
+    config['description'] = args.description.strip()
+    config['history'] = []
     run()
-    socketio.run(app, port=3000, debug=True, host='0.0.0.0')
+    socketio.run(app, port=3000, debug=True, host='0.0.0.0', use_reloader=False)

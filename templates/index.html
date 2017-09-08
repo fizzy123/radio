@@ -2,52 +2,154 @@
   <head>
     <script type="text/javascript" src="https://code.jquery.com/jquery-3.1.1.min.js"></script>
     <script src="https://cdn.socket.io/socket.io-1.4.5.js"></script>
-    <title>Radio</title>
+    <link href="https://maxcdn.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css" rel="stylesheet" integrity="sha384-wvfXpqpZZVQGK6TAh5PVlGOfQNHSoD2xbE+QkPxCAFlNEevoEH3Sl0sibVcOQVnN" crossorigin="anonymous">
+    <link rel="stylesheet" type="text/css" href="http://csshake.surge.sh/csshake.min.css">
+  <head>
+    <link href="http://vjs.zencdn.net/6.2.5/video-js.css" rel="stylesheet">
+    <!-- If you'd like to support IE8 -->
+    <script src="http://vjs.zencdn.net/ie8/1.1.2/videojs-ie8.min.js"></script>
+  </head>
+    <title>{{ title }}</title>
     <script>
       $(document).ready(function() {
-        var topic = "{{ topic_id }}"
-        var socket = io.connect('http://localhost:3000');
-        var client_id = guid();
-        socket.on('message', function(data) {
-          console.log(data)
-          if (data.topic === topic && data.client_id !== client_id) {
-            var new_message = $('<div>')
-            new_message.addClass('subject')
-            new_message.text(data.message)
-            $('.chat').append(new_message)
+        videojs.options.flash.swf = "video-js.swf"
+        if (!window.localStorage['username']) {
+          $('.overlay').fadeIn();
+          $('.main').hide()
+          $('.username-input').focus()
+        }
+        $('.username-input').keypress(function(e) {
+          if (e.which === 13) {
+            if ($('.username-input').val().length) {
+              window.localStorage['username'] = $('.username-input').val()
+
+              $('.overlay').fadeOut();
+              $('.main').show()
+              $('.chat').scrollTop($('.chat').prop('scrollHeight'))
+              $('.message-box').focus()
+            } else {
+              $('.username-input').addClass('shake-hard')
+              setTimeout(function() {
+                $('.username-input').removeClass('shake-hard')
+              }, 200)
+            }
+            return false
           }
+        })
+        var color_selection = [
+          '#53777A',
+          '#542437',
+          '#C02942',
+          '#D95B43',
+          '#ECD078',
+          '#0B486B',
+
+          '#3B8686',
+          '#79BD9A',
+          '#C44D58',
+          '#FF6B6B',
+          '#4ECDC4',
+          '#774F38',
+          '#E08E79',
+          '#CDB380',
+          '#490A3D',
+          '#BD1550',
+          '#E97F02',
+          '#00A0B0',
+          '#E94E77',
+          '#99173C',
+          '#73626E'
+        ]
+        username_color_dict = {"RADIOBOT": "8A9B0F"}
+        var socket = io.connect();
+
+        socket.on('message_emit', function(data) {
+          if ($('.message-body').length > 50) {
+            $('.message-body').slice(0,-50).remove()
+          }
+
+          $('.chat').append(formatMessage(data['message'], data['username']))
+          $('.chat').scrollTop($('.chat').prop('scrollHeight'))
         });
-        $('.send').click(function() {
+        function sendMessage() {
           var message = $('.message-box').val()
           $('.message-box').val('')
-          $.post('/message', {message: message, topic:topic, client_id: client_id}, function() {
-            var new_message = $('<div>')
-            new_message.addClass('object')
-            new_message.text(message)
-            $('.chat').append(new_message)
-          })
-        });
-      })
-      function guid() {
-        function s4() {
-          return Math.floor((1 + Math.random()) * 0x10000)
-            .toString(16)
-            .substring(1);
+          socket.emit('message_emit', {message: message, username: window.localStorage['username']})
         }
-        return s4() + s4() + '-' + s4() + '-' + s4() + '-' +
-          s4() + '-' + s4() + s4() + s4();
-      }
+        $('.send').click(sendMessage);
+        $('.message-box').keypress(function(e) {
+          if (e.which === 13) {
+            sendMessage()
+            return false
+          }
+        })
+        function formatMessage(message, username) {
+          if (message == '--') {
+            message = 'Downvoted!'
+            username = 'RADIOBOT'
+          }
+          var $body = $('<div>')
+          $body.addClass('message-body')
+          var $username = $('<div>')
+          $username.addClass('username')
+          if (!username_color_dict[username]) {
+            username_color_dict[username] = color_selection[Math.floor(Math.random() * color_selection.length)]
+          }
+          $username.css('color', username_color_dict[username])
+          $username.text(username)
+
+          $body.append($username)
+          var $message = $('<div>')
+          $message.addClass('message')
+          $message.html(message.replace(/\n/g, "<br/>"))
+          $body.append($message)
+          return $body
+        }
+        $.get('/messages', function(data) {
+          data['messages'].forEach(function(message) {
+            $('.chat').append(formatMessage(message['message'], message['username']))
+            $('.chat').scrollTop($('.chat').prop('scrollHeight'))
+          });
+
+        })
+        $('.chat').scrollTop($('.chat').prop('scrollHeight'))
+        if (window.localStorage['username']) {
+            $('.message-box').focus()
+        }
+        $('.message-box').focus()
+      })
     </script>
     <link href="https://fonts.googleapis.com/css?family=Open+Sans" rel="stylesheet">
     <link rel=stylesheet type=text/css href="{{ url_for('static', filename='default.css') }}">
   </head>
   <body>
-    <h1>{{ topic }}</h1>
-    <div class='chat'>
+
+    <div class="main">
+      <h1>{{ title }}</h1>
+      <center>
+        <video id='livestream' class='video-js vjs-default-skin vjs-big-playcentered main'
+               controls autoplay preload='auto' width='854' height='480'>
+          <source src='http://psiu-radio.nobr.me/hls/stream.m3u8' type='application/x-mpegURL'>
+        </video>
+
+      </center>
+      <div class='chat'></div>
+      <div>
+        <input placeholder='!help for info' type='text' class='message-box'>
+        <i class='fa fa-reply fa-1 send' aria-hideen="true"></i>
+      </div>
     </div>
-    <div class='message'>
-      <input placeholder='Say something!' type='text' class='message-box'>
-      <div class='send'>Submit</div>
+    <div class='overlay'>
+      <div class='username-prompt'>What would you like to go by?<br/>
+        <input type='text' class='username-input'>
+      </div>
     </div>
+  <script src="http://vjs.zencdn.net/6.2.5/video.js"></script>
+  <script src="https://github.com/videojs/videojs-contrib-hls/releases/download/v5.10.1/videojs-contrib-hls.min.js"></script>
+  <script src="{{ url_for('static', filename='videojs-flash.min.js') }}"></script>
+  <script>
+    var player = videojs('livestream')
+    player.play()
+  </script>
   </body>
 </html>

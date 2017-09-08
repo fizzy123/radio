@@ -6,13 +6,78 @@ div {
 }
 
 .chat {
-  height: 800px;
+  height: 600px;
+  width: 854px;
+  font-size: 14px;
+  overflow-y: scroll;
 }
 
-.object {
-  color: #A61814
+.message-body {
+  margin-bottom: 12px;
 }
 
-.subject {
-  color: #06162F
+.username {
+  font-family: 'Francois One', sans-serif;
+  font-weight: 800;
+  display: inline-block;
+  font-size: 15px;
+  margin-right: 6px;
+  vertical-align: top;
+}
+
+.message {
+  display: inline-block;
+}
+
+.message-box {
+  font-size: 16px;
+  width: 824px;
+  border: 0px;
+  border-bottom: 1px solid #6d6d6d;
+  outline: none;
+}
+
+.send {
+  cursor: pointer;
+}
+
+.overlay {
+  display: none;
+  height: 100%;
+  width: 100%;
+  background: #000;
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  color: #fff;
+}
+
+.username-prompt {
+  text-align: center;
+  width: 400px;
+  height: 100px;
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  margin: auto;
+  font-size: 40px;
+}
+
+.username-input {
+  background: #000;
+  color: #fff;
+  border: 0px;
+  border-bottom: 1px solid #6d6d6d;
+  text-align: center;
+  width: 300px;
+  font-size: 40px;
+  margin-top: 24px;
+  outline: none;
+}
+
+.main {
+  width: 854px;
+  margin: auto;
 }
