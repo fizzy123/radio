@@ -129,7 +129,7 @@
       <center>
         <video id='livestream' class='video-js vjs-default-skin vjs-big-playcentered main'
                controls autoplay preload='auto' width='854' height='480'>
-          <source src='http://psiu-radio.nobr.me/hls/stream.m3u8' type='application/x-mpegURL'>
+          <source src='http://adeline-radio.nobr.me/hls/stream.m3u8' type='application/x-mpegURL'>
         </video>
 
       </center>
@@ -146,7 +146,6 @@
     </div>
   <script src="http://vjs.zencdn.net/6.2.5/video.js"></script>
   <script src="https://github.com/videojs/videojs-contrib-hls/releases/download/v5.10.1/videojs-contrib-hls.min.js"></script>
-  <script src="{{ url_for('static', filename='videojs-flash.min.js') }}"></script>
   <script>
     var player = videojs('livestream')
     player.play()

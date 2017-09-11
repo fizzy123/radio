@@ -7,7 +7,7 @@ import sqlite3
 import argparse
 
 from os import listdir
-from os.path import isfile, join
+from os.path import isfile, join, realpath
 
 import requests
 import youtube_dl
@@ -20,8 +20,10 @@ socketio = SocketIO(app)
 config = {}
 MESSAGES_LENGTH = 100
 
+CUR_DIR = '/'.join(realpath(__file__).split('/')[0:-1])
+
 def get_db():
-    conn = sqlite3.connect('radio.db')
+    conn = sqlite3.connect('{}/radio.db'.format(CUR_DIR))
     conn.row_factory = sqlite3.Row
     if not has_request_context():
         return conn
@@ -133,9 +135,9 @@ def play_song():
     swap.wait()
     if swap.returncode != 0:
         raise RuntimeError('Swap Failed')
-    image = random.choice([f for f in listdir('images') if isfile(join('images', f))])
+    image = '{}/images/{}'.format(CUR_DIR, random.choice([f for f in listdir('{}/images'.format(CUR_DIR)) if isfile(join('{}/images'.format(CUR_DIR), f))]))
     info = get_info(config['current_url'])
-    stream = subprocess.Popen(['./stream.sh',
+    stream = subprocess.Popen(['{}/stream.sh'.format(CUR_DIR),
                                image,
                                info.encode('utf-8'),
                                '{}/{}'.format(config['rtmp-server'],
@@ -186,7 +188,7 @@ def get_youtube_info(url=None):
 def get_soundcloud_info(url=None):
     if not url:
         url = config['current_url']
-    parts = url.replace('-', ' ').split('/')
+    parts = url.replace('-', ' ').split('?')[0].split('/')
     return "{} - {}".format(parts[-2], parts[-1])
 
 def init():
@@ -274,7 +276,7 @@ if __name__ == "__main__":
     parser.add_argument("--disable-downvotes", help="Disable Downvotes")
     parser.add_argument("--disable-adding", help="Disable Adding Songs")
     parser.add_argument("--description", help="Description")
-    parser.add_argument("--rtmp-server", help="Description", default='172.17.0.6')
+    parser.add_argument("--rtmp-server", help="Description", default='10.180.184.1')
     args = parser.parse_args()
     if not args.description:
         args.description = ''
