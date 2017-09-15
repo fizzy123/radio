@@ -255,7 +255,7 @@ def dump(key):
         info = get_info(row['url'])
         result_string = result_string + info + '|' + str(row['score']) + '\n'
     result_string = result_string + "\n\n#readonly"
-    requests.post('http://nobr.me/general/ram/', {'key': key, 'body': result_string})
+    requests.post('http://notepad.nobr.me', {'key': key, 'body': result_string})
 
 if __name__ == "__main__":
     if len(sys.argv) > 1:
@@ -282,7 +282,7 @@ if __name__ == "__main__":
         args.description = ''
 
 # pylint: disable=line-too-long
-    args.description = "{}\n\n<a href='http://nobr.me/general/ram/?key={}'>Playlist</a>".format(args.description, args.broadcast_title.lower().replace(' ', '-'))
+    args.description = "{}\n\n<a href='http://notepad.nobr.me?key={}'>Playlist</a>".format(args.description, args.broadcast_title.lower().replace(' ', '-'))
     if not args.disable_upvotes or \
        not args.disable_downvotes or \
        not args.disable_adding:
